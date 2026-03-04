@@ -1,10 +1,14 @@
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // RepoCreds holds the definition for repository credentials
+// +kubebuilder:object:generate=true
 type RepoCreds struct {
-	// URL is the URL that this credentials matches to
+	// URL is the URL to which these credentials match
 	URL string `json:"url" protobuf:"bytes,1,opt,name=url"`
 	// Username for authenticating at the repo server
 	Username string `json:"username,omitempty" protobuf:"bytes,2,opt,name=username"`
@@ -33,10 +37,19 @@ type RepoCreds struct {
 	// Proxy specifies the HTTP/HTTPS proxy used to access repos at the repo server
 	Proxy string `json:"proxy,omitempty" protobuf:"bytes,19,opt,name=proxy"`
 	// ForceHttpBasicAuth specifies whether Argo CD should attempt to force basic auth for HTTP connections
-	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,20,opt,name=forceHttpBasicAuth"`
+	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,20,opt,name=forceHttpBasicAuth"` //nolint:revive //FIXME(var-naming)
+	// NoProxy specifies a list of targets where the proxy isn't used, applies only in cases where the proxy is applied
+	NoProxy string `json:"noProxy,omitempty" protobuf:"bytes,23,opt,name=noProxy"`
+	// UseAzureWorkloadIdentity specifies whether to use Azure Workload Identity for authentication
+	UseAzureWorkloadIdentity bool `json:"useAzureWorkloadIdentity,omitempty" protobuf:"bytes,24,opt,name=useAzureWorkloadIdentity"`
+	// BearerToken contains the bearer token used for Git BitBucket Data Center auth at the repo server
+	BearerToken string `json:"bearerToken,omitempty" protobuf:"bytes,25,opt,name=bearerToken"`
+	// InsecureOCIForceHttp specifies whether the connection to the repository uses TLS at _all_. If true, no TLS. This flag is applicable for OCI repos only.
+	InsecureOCIForceHttp bool `json:"insecureOCIForceHttp,omitempty" protobuf:"bytes,26,opt,name=insecureOCIForceHttp"` //nolint:revive //FIXME(var-naming)
 }
 
 // Repository is a repository holding application configurations
+// +kubebuilder:object:generate=true
 type Repository struct {
 	// Repo contains the URL to the remote repository
 	Repo string `json:"repo" protobuf:"bytes,1,opt,name=repo"`
@@ -77,30 +90,203 @@ type Repository struct {
 	GitHubAppEnterpriseBaseURL string `json:"githubAppEnterpriseBaseUrl,omitempty" protobuf:"bytes,18,opt,name=githubAppEnterpriseBaseUrl"`
 	// Proxy specifies the HTTP/HTTPS proxy used to access the repo
 	Proxy string `json:"proxy,omitempty" protobuf:"bytes,19,opt,name=proxy"`
-	// Reference between project and repository that allow you automatically to be added as item inside SourceRepos project entity
+	// Reference between project and repository that allows it to be automatically added as an item inside SourceRepos project entity
 	Project string `json:"project,omitempty" protobuf:"bytes,20,opt,name=project"`
 	// GCPServiceAccountKey specifies the service account key in JSON format to be used for getting credentials to Google Cloud Source repos
 	GCPServiceAccountKey string `json:"gcpServiceAccountKey,omitempty" protobuf:"bytes,21,opt,name=gcpServiceAccountKey"`
 	// ForceHttpBasicAuth specifies whether Argo CD should attempt to force basic auth for HTTP connections
-	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,22,opt,name=forceHttpBasicAuth"`
+	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,22,opt,name=forceHttpBasicAuth"` //nolint:revive //FIXME(var-naming)
+	// NoProxy specifies a list of targets where the proxy isn't used, applies only in cases where the proxy is applied
+	NoProxy string `json:"noProxy,omitempty" protobuf:"bytes,23,opt,name=noProxy"`
+	// UseAzureWorkloadIdentity specifies whether to use Azure Workload Identity for authentication
+	UseAzureWorkloadIdentity bool `json:"useAzureWorkloadIdentity,omitempty" protobuf:"bytes,24,opt,name=useAzureWorkloadIdentity"`
+	// BearerToken contains the bearer token used for Git BitBucket Data Center auth at the repo server
+	BearerToken string `json:"bearerToken,omitempty" protobuf:"bytes,25,opt,name=bearerToken"`
+	// InsecureOCIForceHttp specifies whether the connection to the repository uses TLS at _all_. If true, no TLS. This flag is applicable for OCI repos only.
+	InsecureOCIForceHttp bool `json:"insecureOCIForceHttp,omitempty" protobuf:"bytes,26,opt,name=insecureOCIForceHttp"` //nolint:revive //FIXME(var-naming)
+}
+
+// IsInsecure returns true if the repository has been configured to skip server verification or set to HTTP only
+func (repo *Repository) IsInsecure() bool {
+	return repo.InsecureIgnoreHostKey || repo.Insecure || repo.InsecureOCIForceHttp
+}
+
+// IsLFSEnabled returns true if LFS support is enabled on repository
+func (repo *Repository) IsLFSEnabled() bool {
+	return repo.EnableLFS
+}
+
+// HasCredentials returns true when the repository has been configured with any credentials
+func (repo *Repository) HasCredentials() bool {
+	return repo.Username != "" || repo.Password != "" || repo.BearerToken != "" || repo.SSHPrivateKey != "" || repo.TLSClientCertData != "" || repo.GithubAppPrivateKey != "" || repo.UseAzureWorkloadIdentity
+}
+
+// CopyCredentialsFromRepo copies all credential information from source repository to receiving repository
+func (repo *Repository) CopyCredentialsFromRepo(source *Repository) {
+	if source != nil {
+		if repo.Username == "" {
+			repo.Username = source.Username
+		}
+		if repo.Password == "" {
+			repo.Password = source.Password
+		}
+		if repo.BearerToken == "" {
+			repo.BearerToken = source.BearerToken
+		}
+		if repo.SSHPrivateKey == "" {
+			repo.SSHPrivateKey = source.SSHPrivateKey
+		}
+		if repo.TLSClientCertData == "" {
+			repo.TLSClientCertData = source.TLSClientCertData
+		}
+		if repo.TLSClientCertKey == "" {
+			repo.TLSClientCertKey = source.TLSClientCertKey
+		}
+		if repo.GithubAppPrivateKey == "" {
+			repo.GithubAppPrivateKey = source.GithubAppPrivateKey
+		}
+		if repo.GithubAppId == 0 {
+			repo.GithubAppId = source.GithubAppId
+		}
+		if repo.GithubAppInstallationId == 0 {
+			repo.GithubAppInstallationId = source.GithubAppInstallationId
+		}
+		if repo.GitHubAppEnterpriseBaseURL == "" {
+			repo.GitHubAppEnterpriseBaseURL = source.GitHubAppEnterpriseBaseURL
+		}
+		if repo.GCPServiceAccountKey == "" {
+			repo.GCPServiceAccountKey = source.GCPServiceAccountKey
+		}
+		repo.InsecureOCIForceHttp = source.InsecureOCIForceHttp
+		repo.ForceHttpBasicAuth = source.ForceHttpBasicAuth
+		repo.UseAzureWorkloadIdentity = source.UseAzureWorkloadIdentity
+	}
+}
+
+// CopyCredentialsFrom copies credentials from given credential template to receiving repository
+func (repo *Repository) CopyCredentialsFrom(source *RepoCreds) {
+	if source != nil {
+		if repo.Username == "" {
+			repo.Username = source.Username
+		}
+		if repo.Password == "" {
+			repo.Password = source.Password
+		}
+		if repo.BearerToken == "" {
+			repo.BearerToken = source.BearerToken
+		}
+		if repo.SSHPrivateKey == "" {
+			repo.SSHPrivateKey = source.SSHPrivateKey
+		}
+		if repo.TLSClientCertData == "" {
+			repo.TLSClientCertData = source.TLSClientCertData
+		}
+		if repo.TLSClientCertKey == "" {
+			repo.TLSClientCertKey = source.TLSClientCertKey
+		}
+		if repo.GithubAppPrivateKey == "" {
+			repo.GithubAppPrivateKey = source.GithubAppPrivateKey
+		}
+		if repo.GithubAppId == 0 {
+			repo.GithubAppId = source.GithubAppId
+		}
+		if repo.GithubAppInstallationId == 0 {
+			repo.GithubAppInstallationId = source.GithubAppInstallationId
+		}
+		if repo.GitHubAppEnterpriseBaseURL == "" {
+			repo.GitHubAppEnterpriseBaseURL = source.GitHubAppEnterpriseBaseURL
+		}
+		if repo.GCPServiceAccountKey == "" {
+			repo.GCPServiceAccountKey = source.GCPServiceAccountKey
+		}
+		if repo.Proxy == "" {
+			repo.Proxy = source.Proxy
+		}
+		if repo.NoProxy == "" {
+			repo.NoProxy = source.NoProxy
+		}
+		if repo.Type == "" {
+			repo.Type = source.Type
+		}
+
+		repo.EnableOCI = source.EnableOCI
+		repo.InsecureOCIForceHttp = source.InsecureOCIForceHttp
+		repo.ForceHttpBasicAuth = source.ForceHttpBasicAuth
+		repo.UseAzureWorkloadIdentity = source.UseAzureWorkloadIdentity
+	}
+}
+
+// CopySettingsFrom copies all repository settings from source to receiver
+func (repo *Repository) CopySettingsFrom(source *Repository) {
+	if source != nil {
+		repo.EnableLFS = source.EnableLFS
+		repo.InsecureIgnoreHostKey = source.InsecureIgnoreHostKey
+		repo.Insecure = source.Insecure
+		repo.InheritedCreds = source.InheritedCreds
+	}
+}
+
+// StringForLogging gets a string representation of the Repository which is safe to log or return to the user.
+func (repo *Repository) StringForLogging() string {
+	if repo == nil {
+		return ""
+	}
+	return fmt.Sprintf("&Repository{Repo: %q, Type: %q, Name: %q, Project: %q}", repo.Repo, repo.Type, repo.Name, repo.Project)
+}
+
+// Sanitized returns a copy of the Repository with sensitive information removed.
+func (repo *Repository) Sanitized() *Repository {
+	return &Repository{
+		Repo:                       repo.Repo,
+		Type:                       repo.Type,
+		Name:                       repo.Name,
+		Insecure:                   repo.IsInsecure(),
+		EnableLFS:                  repo.EnableLFS,
+		EnableOCI:                  repo.EnableOCI,
+		Proxy:                      repo.Proxy,
+		NoProxy:                    repo.NoProxy,
+		Project:                    repo.Project,
+		ForceHttpBasicAuth:         repo.ForceHttpBasicAuth,
+		InheritedCreds:             repo.InheritedCreds,
+		GithubAppId:                repo.GithubAppId,
+		GithubAppInstallationId:    repo.GithubAppInstallationId,
+		GitHubAppEnterpriseBaseURL: repo.GitHubAppEnterpriseBaseURL,
+		UseAzureWorkloadIdentity:   repo.UseAzureWorkloadIdentity,
+	}
 }
 
 // Repositories defines a list of Repository configurations
+// +kubebuilder:object:generate=true
 type Repositories []*Repository
 
+// Filter returns a list of repositories, which only contain items matched by the supplied predicate method
+func (r Repositories) Filter(predicate func(r *Repository) bool) Repositories {
+	var res Repositories
+	for i := range r {
+		repo := r[i]
+		if predicate(repo) {
+			res = append(res, repo)
+		}
+	}
+	return res
+}
+
 // RepositoryList is a collection of Repositories.
+// +kubebuilder:object:generate=true
 type RepositoryList struct {
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 	Items           Repositories `json:"items" protobuf:"bytes,2,rep,name=items"`
 }
 
 // RepositoryList is a collection of Repositories.
+// +kubebuilder:object:generate=true
 type RepoCredsList struct {
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 	Items           []RepoCreds `json:"items" protobuf:"bytes,2,rep,name=items"`
 }
 
 // A RepositoryCertificate is either SSH known hosts entry or TLS certificate
+// +kubebuilder:object:generate=true
 type RepositoryCertificate struct {
 	// ServerName specifies the DNS name of the server this certificate is intended for
 	ServerName string `json:"serverName" protobuf:"bytes,1,opt,name=serverName"`
@@ -115,6 +301,7 @@ type RepositoryCertificate struct {
 }
 
 // RepositoryCertificateList is a collection of RepositoryCertificates
+// +kubebuilder:object:generate=true
 type RepositoryCertificateList struct {
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 	// List of certificates to be processed
@@ -122,6 +309,7 @@ type RepositoryCertificateList struct {
 }
 
 // GnuPGPublicKey is a representation of a GnuPG public key
+// +kubebuilder:object:generate=true
 type GnuPGPublicKey struct {
 	// KeyID specifies the key ID, in hexadecimal string format
 	KeyID string `json:"keyID" protobuf:"bytes,1,opt,name=keyID"`
@@ -131,13 +319,14 @@ type GnuPGPublicKey struct {
 	Owner string `json:"owner,omitempty" protobuf:"bytes,3,opt,name=owner"`
 	// Trust holds the level of trust assigned to this key
 	Trust string `json:"trust,omitempty" protobuf:"bytes,4,opt,name=trust"`
-	// SubType holds the key's sub type (e.g. rsa4096)
+	// SubType holds the key's subtype (e.g. rsa4096)
 	SubType string `json:"subType,omitempty" protobuf:"bytes,5,opt,name=subType"`
 	// KeyData holds the raw key data, in base64 encoded format
 	KeyData string `json:"keyData,omitempty" protobuf:"bytes,6,opt,name=keyData"`
 }
 
 // GnuPGPublicKeyList is a collection of GnuPGPublicKey objects
+// +kubebuilder:object:generate=true
 type GnuPGPublicKeyList struct {
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 	Items           []GnuPGPublicKey `json:"items" protobuf:"bytes,2,rep,name=items"`

@@ -1,9 +1,16 @@
-package gitopsengine
+package synccommon
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+type ResourceKey struct {
+	Group     string
+	Kind      string
+	Namespace string
+	Name      string
+}
 
 const (
 	// AnnotationSyncOptions is a comma-separated list of options for syncing
@@ -27,10 +34,6 @@ const (
 	SyncOptionReplace = "Replace=true"
 	// Sync option that enables use of --server-side flag instead of client-side
 	SyncOptionServerSideApply = "ServerSideApply=true"
-	// Sync option that disables resource deletion
-	SyncOptionDisableDeletion = "Delete=false"
-	// Sync option that sync only out of sync resources
-	SyncOptionApplyOutOfSyncOnly = "ApplyOutOfSyncOnly=true"
 )
 
 type PermissionValidator func(un *unstructured.Unstructured, res *metav1.APIResource) error
@@ -121,4 +124,24 @@ func NewHookDeletePolicy(p string) (HookDeletePolicy, bool) {
 		p == string(HookDeletePolicyHookSucceeded) ||
 			p == string(HookDeletePolicyHookFailed) ||
 			p == string(HookDeletePolicyBeforeHookCreation)
+}
+
+type ResourceSyncResult struct {
+	// holds associated resource key
+	ResourceKey ResourceKey
+	// holds resource version
+	Version string
+	// holds the execution order
+	Order int
+	// result code
+	Status ResultCode
+	// message for the last sync OR operation
+	Message string
+	// the type of the hook, empty for non-hook resources
+	HookType HookType
+	// the state of any operation associated with this resource OR hook
+	// note: can contain values for non-hook resources
+	HookPhase OperationPhase
+	// indicates the particular phase of the sync that this is for
+	SyncPhase SyncPhase
 }

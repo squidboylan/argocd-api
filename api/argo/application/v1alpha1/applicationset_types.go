@@ -17,13 +17,11 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
-
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sort"
 )
 
 // Utility struct for a reference to a secret key.
@@ -33,24 +31,26 @@ type SecretRef struct {
 	Key        string `json:"key" protobuf:"bytes,2,opt,name=key"`
 }
 
+// Utility struct for a reference to a configmap key.
+// +kubebuilder:object:generate=true
+type ConfigMapKeyRef struct {
+	ConfigMapName string `json:"configMapName" protobuf:"bytes,1,opt,name=configMapName"`
+	Key           string `json:"key" protobuf:"bytes,2,opt,name=key"`
+}
+
 // ApplicationSet is a set of Application resources
 // +genclient
 // +genclient:noStatus
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:resource:path=applicationsets,shortName=appset;appsets
 // +kubebuilder:subresource:status
-// +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type ApplicationSet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata" protobuf:"bytes,1,opt,name=metadata"`
 	Spec              ApplicationSetSpec   `json:"spec" protobuf:"bytes,2,opt,name=spec"`
 	Status            ApplicationSetStatus `json:"status,omitempty" protobuf:"bytes,3,opt,name=status"`
 }
-
-// RBACName formats fully qualified application name for RBAC check.
-//func (a *ApplicationSet) RBACName(defaultNS string) string {
-//	return security.RBACName(defaultNS, a.Spec.Template.Spec.Project, a.Namespace, a.Name)
-//}
 
 // ApplicationSetSpec represents a class of application set state.
 // +kubebuilder:object:generate=true
@@ -63,6 +63,8 @@ type ApplicationSetSpec struct {
 	PreservedFields   *ApplicationPreservedFields `json:"preservedFields,omitempty" protobuf:"bytes,6,opt,name=preservedFields"`
 	GoTemplateOptions []string                    `json:"goTemplateOptions,omitempty" protobuf:"bytes,7,opt,name=goTemplateOptions"`
 	// ApplyNestedSelectors enables selectors defined within the generators of two level-nested matrix or merge generators
+	// Deprecated: This field is ignored, and the behavior is always enabled. The field will be removed in a future
+	// version of the ApplicationSet CRD.
 	ApplyNestedSelectors         bool                            `json:"applyNestedSelectors,omitempty" protobuf:"bytes,8,name=applyNestedSelectors"`
 	IgnoreApplicationDifferences ApplicationSetIgnoreDifferences `json:"ignoreApplicationDifferences,omitempty" protobuf:"bytes,9,name=ignoreApplicationDifferences"`
 	TemplatePatch                *string                         `json:"templatePatch,omitempty" protobuf:"bytes,10,name=templatePatch"`
@@ -138,7 +140,6 @@ type ApplicationSetSyncPolicy struct {
 
 // ApplicationSetIgnoreDifferences configures how the ApplicationSet controller will ignore differences in live
 // applications when applying changes from generated applications.
-// +kubebuilder:object:generate=true
 type ApplicationSetIgnoreDifferences []ApplicationSetResourceIgnoreDifferences
 
 func (a ApplicationSetIgnoreDifferences) ToApplicationIgnoreDifferences() []ResourceIgnoreDifferences {
@@ -230,7 +231,6 @@ type ApplicationSetNestedGenerator struct {
 	Plugin *PluginGenerator `json:"plugin,omitempty" protobuf:"bytes,10,name=plugin"`
 }
 
-// +kubebuilder:object:generate=true
 type ApplicationSetNestedGenerators []ApplicationSetNestedGenerator
 
 // ApplicationSetTerminalGenerator represents a generator nested within a nested generator (for example, a list within
@@ -251,7 +251,6 @@ type ApplicationSetTerminalGenerator struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty" protobuf:"bytes,8,name=selector"`
 }
 
-// +kubebuilder:object:generate=true
 type ApplicationSetTerminalGenerators []ApplicationSetTerminalGenerator
 
 // toApplicationSetNestedGenerators converts a terminal generator (a generator which cannot be a combination-type
@@ -303,31 +302,6 @@ type NestedMatrixGenerator struct {
 	Generators ApplicationSetTerminalGenerators `json:"generators" protobuf:"bytes,1,name=generators"`
 }
 
-// ToNestedMatrixGenerator converts a JSON struct (from the K8s resource) to corresponding
-// NestedMatrixGenerator object.
-func ToNestedMatrixGenerator(j *apiextensionsv1.JSON) (*NestedMatrixGenerator, error) {
-	if j == nil {
-		return nil, nil
-	}
-
-	nestedMatrixGenerator := NestedMatrixGenerator{}
-	err := json.Unmarshal(j.Raw, &nestedMatrixGenerator)
-	if err != nil {
-		return nil, err
-	}
-
-	return &nestedMatrixGenerator, nil
-}
-
-// ToMatrixGenerator converts a NestedMatrixGenerator to a MatrixGenerator. This conversion is for convenience, allowing
-// a NestedMatrixGenerator to be used where a MatrixGenerator is expected (of course, the converted generator will have
-// no override template).
-func (g NestedMatrixGenerator) ToMatrixGenerator() *MatrixGenerator {
-	return &MatrixGenerator{
-		Generators: g.Generators.toApplicationSetNestedGenerators(),
-	}
-}
-
 // MergeGenerator merges the output of two or more generators. Where the values for all specified merge keys are equal
 // between two sets of generated parameters, the parameter sets will be merged with the parameters from the latter
 // generator taking precedence. Parameter sets with merge keys not present in the base generator's params will be
@@ -358,32 +332,6 @@ type NestedMergeGenerator struct {
 	MergeKeys  []string                         `json:"mergeKeys" protobuf:"bytes,2,name=mergeKeys"`
 }
 
-// ToNestedMergeGenerator converts a JSON struct (from the K8s resource) to corresponding
-// NestedMergeGenerator object.
-func ToNestedMergeGenerator(j *apiextensionsv1.JSON) (*NestedMergeGenerator, error) {
-	if j == nil {
-		return nil, nil
-	}
-
-	nestedMergeGenerator := NestedMergeGenerator{}
-	err := json.Unmarshal(j.Raw, &nestedMergeGenerator)
-	if err != nil {
-		return nil, err
-	}
-
-	return &nestedMergeGenerator, nil
-}
-
-// ToMergeGenerator converts a NestedMergeGenerator to a MergeGenerator. This conversion is for convenience, allowing
-// a NestedMergeGenerator to be used where a MergeGenerator is expected (of course, the converted generator will have
-// no override template).
-func (g NestedMergeGenerator) ToMergeGenerator() *MergeGenerator {
-	return &MergeGenerator{
-		Generators: g.Generators.toApplicationSetNestedGenerators(),
-		MergeKeys:  g.MergeKeys,
-	}
-}
-
 // ClusterGenerator defines a generator to match against clusters registered with ArgoCD.
 // +kubebuilder:object:generate=true
 type ClusterGenerator struct {
@@ -395,6 +343,9 @@ type ClusterGenerator struct {
 
 	// Values contains key/value pairs which are passed directly as parameters to the template
 	Values map[string]string `json:"values,omitempty" protobuf:"bytes,3,name=values"`
+
+	// returns the clusters a single 'clusters' value in the template
+	FlatList bool `json:"flatList,omitempty" protobuf:"bytes,4,name=flatList"`
 }
 
 // DuckType defines a generator to match against clusters registered with ArgoCD.
@@ -436,7 +387,8 @@ type GitDirectoryGeneratorItem struct {
 
 // +kubebuilder:object:generate=true
 type GitFileGeneratorItem struct {
-	Path string `json:"path" protobuf:"bytes,1,name=path"`
+	Path    string `json:"path" protobuf:"bytes,1,name=path"`
+	Exclude bool   `json:"exclude,omitempty" protobuf:"bytes,2,name=exclude"`
 }
 
 // SCMProviderGenerator defines a generator that scrapes a SCMaaS API to find candidate repos.
@@ -462,21 +414,6 @@ type SCMProviderGenerator struct {
 	Values        map[string]string                  `json:"values,omitempty" protobuf:"bytes,11,name=values"`
 	AWSCodeCommit *SCMProviderGeneratorAWSCodeCommit `json:"awsCodeCommit,omitempty" protobuf:"bytes,12,opt,name=awsCodeCommit"`
 	// If you add a new SCM provider, update CustomApiUrl below.
-}
-
-func (g *SCMProviderGenerator) CustomApiUrl() string {
-	if g.Github != nil {
-		return g.Github.API
-	} else if g.Gitlab != nil {
-		return g.Gitlab.API
-	} else if g.Gitea != nil {
-		return g.Gitea.API
-	} else if g.BitbucketServer != nil {
-		return g.BitbucketServer.API
-	} else if g.AzureDevOps != nil {
-		return g.AzureDevOps.API
-	}
-	return ""
 }
 
 // SCMProviderGeneratorGitea defines a connection info specific to Gitea.
@@ -528,10 +465,8 @@ type SCMProviderGeneratorGitlab struct {
 	IncludeSharedProjects *bool `json:"includeSharedProjects,omitempty" protobuf:"varint,7,opt,name=includeSharedProjects"`
 	// Filter repos list based on Gitlab Topic.
 	Topic string `json:"topic,omitempty" protobuf:"bytes,8,opt,name=topic"`
-}
-
-func (s *SCMProviderGeneratorGitlab) WillIncludeSharedProjects() bool {
-	return s.IncludeSharedProjects == nil || *s.IncludeSharedProjects
+	// ConfigMap key holding the trusted certificates
+	CARef *ConfigMapKeyRef `json:"caRef,omitempty" protobuf:"bytes,9,opt,name=caRef"`
 }
 
 // SCMProviderGeneratorBitbucket defines connection info specific to Bitbucket Cloud (API version 2).
@@ -558,6 +493,12 @@ type SCMProviderGeneratorBitbucketServer struct {
 	BasicAuth *BasicAuthBitbucketServer `json:"basicAuth,omitempty" protobuf:"bytes,3,opt,name=basicAuth"`
 	// Scan all branches instead of just the default branch.
 	AllBranches bool `json:"allBranches,omitempty" protobuf:"varint,4,opt,name=allBranches"`
+	// Credentials for AccessToken (Bearer auth)
+	BearerToken *BearerTokenBitbucket `json:"bearerToken,omitempty" protobuf:"bytes,5,opt,name=bearerToken"`
+	// Allow self-signed TLS / Certificates; default: false
+	Insecure bool `json:"insecure,omitempty" protobuf:"varint,6,opt,name=insecure"`
+	// ConfigMap key holding the trusted certificates
+	CARef *ConfigMapKeyRef `json:"caRef,omitempty" protobuf:"bytes,7,opt,name=caRef"`
 }
 
 // SCMProviderGeneratorAzureDevOps defines connection info specific to Azure DevOps.
@@ -575,6 +516,7 @@ type SCMProviderGeneratorAzureDevOps struct {
 	AllBranches bool `json:"allBranches,omitempty" protobuf:"varint,9,opt,name=allBranches"`
 }
 
+// +kubebuilder:object:generate=true
 type TagFilter struct {
 	Key   string `json:"key" protobuf:"bytes,1,opt,name=key"`
 	Value string `json:"value,omitempty" protobuf:"bytes,2,opt,name=value"`
@@ -628,29 +570,9 @@ type PullRequestGenerator struct {
 	Bitbucket           *PullRequestGeneratorBitbucket `json:"bitbucket,omitempty" protobuf:"bytes,8,opt,name=bitbucket"`
 	// Additional provider to use and config for it.
 	AzureDevOps *PullRequestGeneratorAzureDevOps `json:"azuredevops,omitempty" protobuf:"bytes,9,opt,name=azuredevops"`
+	// Values contains key/value pairs which are passed directly as parameters to the template
+	Values map[string]string `json:"values,omitempty" protobuf:"bytes,10,name=values"`
 	// If you add a new SCM provider, update CustomApiUrl below.
-}
-
-func (p *PullRequestGenerator) CustomApiUrl() string {
-	if p.Github != nil {
-		return p.Github.API
-	}
-	if p.GitLab != nil {
-		return p.GitLab.API
-	}
-	if p.Gitea != nil {
-		return p.Gitea.API
-	}
-	if p.BitbucketServer != nil {
-		return p.BitbucketServer.API
-	}
-	if p.Bitbucket != nil {
-		return p.Bitbucket.API
-	}
-	if p.AzureDevOps != nil {
-		return p.AzureDevOps.API
-	}
-	return ""
 }
 
 // PullRequestGeneratorGitea defines connection info specific to Gitea.
@@ -666,6 +588,8 @@ type PullRequestGeneratorGitea struct {
 	TokenRef *SecretRef `json:"tokenRef,omitempty" protobuf:"bytes,4,opt,name=tokenRef"`
 	// Allow insecure tls, for self-signed certificates; default: false.
 	Insecure bool `json:"insecure,omitempty" protobuf:"varint,5,opt,name=insecure"`
+	// Labels is used to filter the PRs that you want to target
+	Labels []string `json:"labels,omitempty" protobuf:"bytes,6,rep,name=labels"`
 }
 
 // PullRequestGeneratorAzureDevOps defines connection info specific to AzureDevOps.
@@ -713,10 +637,13 @@ type PullRequestGeneratorGitLab struct {
 	TokenRef *SecretRef `json:"tokenRef,omitempty" protobuf:"bytes,3,opt,name=tokenRef"`
 	// Labels is used to filter the MRs that you want to target
 	Labels []string `json:"labels,omitempty" protobuf:"bytes,4,rep,name=labels"`
-	// PullRequestState is an additional MRs filter to get only those with a certain state. Default: "" (all states)
+	// PullRequestState is an additional MRs filter to get only those with a certain state. Default: "" (all states).
+	// Valid values: opened, closed, merged, locked".
 	PullRequestState string `json:"pullRequestState,omitempty" protobuf:"bytes,5,rep,name=pullRequestState"`
 	// Skips validating the SCM provider's TLS certificate - useful for self-signed certificates.; default: false
 	Insecure bool `json:"insecure,omitempty" protobuf:"varint,6,opt,name=insecure"`
+	// ConfigMap key holding the trusted certificates
+	CARef *ConfigMapKeyRef `json:"caRef,omitempty" protobuf:"bytes,7,opt,name=caRef"`
 }
 
 // PullRequestGeneratorBitbucketServer defines connection info specific to BitbucketServer.
@@ -730,6 +657,12 @@ type PullRequestGeneratorBitbucketServer struct {
 	API string `json:"api" protobuf:"bytes,3,opt,name=api"`
 	// Credentials for Basic auth
 	BasicAuth *BasicAuthBitbucketServer `json:"basicAuth,omitempty" protobuf:"bytes,4,opt,name=basicAuth"`
+	// Credentials for AccessToken (Bearer auth)
+	BearerToken *BearerTokenBitbucket `json:"bearerToken,omitempty" protobuf:"bytes,5,opt,name=bearerToken"`
+	// Allow self-signed TLS / Certificates; default: false
+	Insecure bool `json:"insecure,omitempty" protobuf:"varint,6,opt,name=insecure"`
+	// ConfigMap key holding the trusted certificates
+	CARef *ConfigMapKeyRef `json:"caRef,omitempty" protobuf:"bytes,7,opt,name=caRef"`
 }
 
 // PullRequestGeneratorBitbucket defines connection info specific to Bitbucket.
@@ -745,6 +678,13 @@ type PullRequestGeneratorBitbucket struct {
 	BasicAuth *BasicAuthBitbucketServer `json:"basicAuth,omitempty" protobuf:"bytes,4,opt,name=basicAuth"`
 	// Credentials for AppToken (Bearer auth)
 	BearerToken *BearerTokenBitbucketCloud `json:"bearerToken,omitempty" protobuf:"bytes,5,opt,name=bearerToken"`
+}
+
+// BearerTokenBitbucket defines the Bearer token for BitBucket AppToken auth.
+// +kubebuilder:object:generate=true
+type BearerTokenBitbucket struct {
+	// Password (or personal access token) reference.
+	TokenRef *SecretRef `json:"tokenRef" protobuf:"bytes,1,opt,name=tokenRef"`
 }
 
 // BearerTokenBitbucketCloud defines the Bearer token for BitBucket AppToken auth.
@@ -823,7 +763,7 @@ type ApplicationSetCondition struct {
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,3,opt,name=lastTransitionTime"`
 	// True/False/Unknown
 	Status ApplicationSetConditionStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
-	//Single word camelcase representing the reason for the status eg ErrorOccurred
+	// Single word camelcase representing the reason for the status eg ErrorOccurred
 	Reason string `json:"reason" protobuf:"bytes,5,opt,name=reason"`
 }
 
@@ -886,11 +826,14 @@ type ApplicationSetApplicationStatus struct {
 	Status string `json:"status" protobuf:"bytes,4,opt,name=status"`
 	// Step tracks which step this Application should be updated in
 	Step string `json:"step" protobuf:"bytes,5,opt,name=step"`
+	// TargetRevision tracks the desired revisions the Application should be synced to.
+	TargetRevisions []string `json:"targetRevisions" protobuf:"bytes,6,opt,name=targetrevisions"`
 }
 
 // ApplicationSetList contains a list of ApplicationSet
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type ApplicationSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
@@ -917,17 +860,11 @@ func (t *ApplicationSetTree) Normalize() {
 // 	SchemeBuilder.Register(&ApplicationSet{}, &ApplicationSetList{})
 // }
 
-// RefreshRequired checks if the ApplicationSet needs to be refreshed
-//func (a *ApplicationSet) RefreshRequired() bool {
-//	_, found := a.Annotations[common.AnnotationApplicationSetRefresh]
-//	return found
-//}
-
 // SetConditions updates the applicationset status conditions for a subset of evaluated types.
 // If the applicationset has a pre-existing condition of a type that is not in the evaluated list,
 // it will be preserved. If the applicationset has a pre-existing condition of a type, status, reason that
 // is in the evaluated list, but not in the incoming conditions list, it will be removed.
-func (status *ApplicationSetStatus) SetConditions(conditions []ApplicationSetCondition, evaluatedTypes map[ApplicationSetConditionType]bool) {
+func (status *ApplicationSetStatus) SetConditions(conditions []ApplicationSetCondition, _ map[ApplicationSetConditionType]bool) {
 	applicationSetConditions := make([]ApplicationSetCondition, 0)
 	now := metav1.Now()
 	for i := range conditions {
@@ -979,7 +916,6 @@ func (status *ApplicationSetStatus) SetApplicationStatus(newStatus ApplicationSe
 func (a *ApplicationSet) QualifiedName() string {
 	if a.Namespace == "" {
 		return a.Name
-	} else {
-		return a.Namespace + "/" + a.Name
 	}
+	return a.Namespace + "/" + a.Name
 }
